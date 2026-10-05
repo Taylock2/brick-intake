@@ -117,11 +117,11 @@ input[type=text],input[type=password],input[type=search],input[type=number]{widt
   <section class="card" id="partcard" hidden>
     <div class="partrow">
       <img id="pimg" alt="">
-      <div><b id="pname"></b><span class="muted" id="pnum"></span><div id="hintchip"></div></div>
+      <div><b id="pname"></b><span class="muted" id="pnum"></span></div>
     </div>
     <h3>2. Pick the colour</h3>
     <div id="likelywrap" hidden>
-      <div class="muted" style="margin-bottom:4px">Closest to your photo</div>
+      <div class="muted" style="margin-bottom:4px">Brickognize's colour guesses</div>
       <div class="swgrid likely" id="likely"></div>
     </div>
     <h3 id="allhead">All colours for this part</h3>
@@ -205,7 +205,7 @@ const LS = {
 const cfg = Object.assign({key:'', token:'', user:'', listId:null, listName:'', bk:'https://api.brickognize.com', rb:'https://rebrickable.com/api/v3'}, LS.get('bi-cfg', {}));
 const state = Object.assign({name:'', items:[]}, LS.get('bi-state', {}));
 let colors = LS.get('bi-colors', null);
-let cur = null, hint = null, bkColors = [];
+let cur = null, bkColors = [];
 const normName = s => String(s || '').toLowerCase().replace(/gr[ae]y/g, 'gray').replace(/[^a-z0-9]+/g, ' ').trim();
 
 function save(){ LS.set('bi-state', state); }
@@ -256,32 +256,6 @@ async function resolvePart(id, directFirst){
   return (await tryBl()) || (await tryDirect());
 }
 
-/* ---------- colour maths ---------- */
-function hex2rgb(h){ const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
-function lab(rgb){
-  const [r, g, b] = rgb.map(v => { v /= 255; return v > 0.04045 ? Math.pow((v + 0.055) / 1.055, 2.4) : v / 12.92; });
-  const x = (r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047, y = r * 0.2126 + g * 0.7152 + b * 0.0722, z = (r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883;
-  const f = t => t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116;
-  return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))];
-}
-function dist(a, b){ return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]); }
-function dominant(cv){
-  const w = cv.width, h = cv.height, data = cv.getContext('2d').getImageData(0, 0, w, h).data;
-  const med = a => { a.sort((x, y) => x - y); return a[a.length >> 1] || 0; };
-  const bR = [], bG = [], bB = [], m = Math.max(2, Math.round(Math.min(w, h) * 0.05));
-  for(let y = 0; y < h; y += 4) for(let x = 0; x < w; x += 4){
-    if(x < m || x >= w - m || y < m || y >= h - m){ const i = (y * w + x) * 4; bR.push(data[i]); bG.push(data[i + 1]); bB.push(data[i + 2]); }
-  }
-  const bg = [med(bR), med(bG), med(bB)], R = [], G = [], B = [];
-  const x0 = Math.round(w * 0.2), x1 = Math.round(w * 0.8), y0 = Math.round(h * 0.2), y1 = Math.round(h * 0.8);
-  for(let y = y0; y < y1; y += 2) for(let x = x0; x < x1; x += 2){
-    const i = (y * w + x) * 4, r = data[i], g = data[i + 1], b = data[i + 2];
-    if(Math.hypot(r - bg[0], g - bg[1], b - bg[2]) > 45 && !(r > 240 && g > 240 && b > 240)){ R.push(r); G.push(g); B.push(b); }
-  }
-  if(R.length < 150) return null;
-  return [med(R), med(G), med(B)];
-}
-
 /* ---------- photo -> Brickognize ---------- */
 function loadImg(file){
   return new Promise((res, rej) => {
@@ -302,7 +276,6 @@ async function handlePhoto(file){
     cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height);
     blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.85));
   } catch(e) { setMsg(e.message, true); return; }
-  try { hint = dominant(cv); } catch(e) { hint = null; }
   $('#shot').src = URL.createObjectURL(blob); $('#shotrow').hidden = false;
   setMsg('Identifying…');
   let data;
@@ -352,7 +325,6 @@ async function loadPart(p){
   let avail = res.map(r => { const c = map.get(r.color_id); return c ? Object.assign({}, c, {pop:r.num_set_parts || 0, img:r.part_img_url || ''}) : null; }).filter(Boolean);
   const known = avail.length > 0;
   if(!known) avail = colors.map(c => Object.assign({}, c, {pop:0, img:''}));
-  avail.forEach(c => { c.lab = lab(hex2rgb(c.rgb)); });
   cur = {num:p.part_num, name:p.name, img:p.part_img_url || '', avail, known, colorId:null};
   $('#qty').value = 1; $('#colsearch').value = '';
   $('#partcard').hidden = false;
@@ -373,22 +345,11 @@ function renderPart(){
   $('#pname').textContent = cur.name; $('#pnum').textContent = 'Part ' + cur.num + (cur.known ? '' : ' (colour list not found, showing all)');
   const sel = cur.avail.find(c => c.id === cur.colorId);
   $('#pimg').src = (sel && sel.img) || cur.img || '';
-  const chip = $('#hintchip'); chip.textContent = '';
-  if(hint){
-    const c = document.createElement('span'); c.className = 'chip';
-    const i = document.createElement('i'); i.style.background = 'rgb(' + hint.join(',') + ')';
-    c.append(i, document.createTextNode('Photo colour hint'));
-    chip.appendChild(c);
-  }
   const likelyBox = $('#likely'); likelyBox.textContent = '';
   const top = [];
   for(const bc of bkColors){
     const c = cur.avail.find(x => normName(x.name) === normName(bc.name));
     if(c && !top.includes(c)) top.push(c);
-  }
-  if(hint && cur.avail.length){
-    const hl = lab(hint);
-    cur.avail.slice().sort((a, b) => dist(a.lab, hl) - dist(b.lab, hl)).slice(0, 4).forEach(c => { if(top.length < 5 && !top.includes(c)) top.push(c); });
   }
   if(top.length){ top.forEach(c => likelyBox.appendChild(swatch(c))); $('#likelywrap').hidden = false; }
   else $('#likelywrap').hidden = true;
@@ -422,7 +383,7 @@ $('#addbtn').onclick = () => {
   if(navigator.vibrate) try { navigator.vibrate(10); } catch(e) {}
 };
 $('#newpart').onclick = () => {
-  cur = null; hint = null; $('#partcard').hidden = true; $('#matches').hidden = true; $('#shotrow').hidden = true; setMsg('');
+  cur = null; bkColors = []; $('#partcard').hidden = true; $('#matches').hidden = true; $('#shotrow').hidden = true; setMsg('');
   window.scrollTo({top:0, behavior:'smooth'});
 };
 
@@ -545,7 +506,7 @@ async function manual(){
   try {
     const p = await resolvePart(id, true);
     if(!p){ setMsg('Rebrickable has no part ' + id + '.', true); return; }
-    setMsg(''); hint = null; bkColors = []; await loadPart(p);
+    setMsg(''); bkColors = []; await loadPart(p);
   } catch(e) { setMsg(keyHelp(e), true); }
 }
 $('#manualgo').onclick = () => withBusy($('#manualgo'), manual);
