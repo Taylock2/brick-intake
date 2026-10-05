@@ -66,9 +66,10 @@ input[type=text],input[type=password],input[type=search],input[type=number]{widt
 .sw span{font-size:12px;font-weight:700;line-height:1.15;text-align:center;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:28px}
 .sw[aria-pressed="true"]{border-color:var(--blue);background:color-mix(in srgb,var(--blue) 14%,transparent)}
 .likely{background:color-mix(in srgb,var(--yellow) 22%,transparent);border-radius:14px;padding:6px}
-.counter{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:14px 0 10px;align-items:center}
+.counter{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:8px 0 12px}
+.qlabel{display:block;margin-top:4px;font-size:13px;font-weight:700;color:var(--muted)}
+.qinput{margin-top:6px;text-align:center;font-weight:900;font-size:34px!important;min-height:64px!important;border:3px solid var(--blue)!important;border-radius:14px;background:var(--bg)!important}
 .counter button{min-height:50px;border-radius:12px;border:2px solid var(--line);background:var(--surface);font-weight:900;font-size:17px;position:relative;overflow:hidden}
-.counter input{text-align:center;font-weight:900;font-size:26px;min-height:50px;padding:0}
 .items{display:flex;flex-direction:column;gap:8px;margin-top:8px}
 .item{display:flex;gap:10px;align-items:center;padding:8px;border:1px solid var(--line);border-radius:14px}
 .item img{width:44px;height:44px;object-fit:contain;background:#fff;border-radius:8px;flex:0 0 auto}
@@ -94,7 +95,6 @@ input[type=text],input[type=password],input[type=search],input[type=number]{widt
 
 <header class="hero">
   <h1>Brick Intake</h1>
-  <p>Scan one brick, tap its colour, enter the count. Export for Rebrickable.</p>
   <button class="gear" id="cfgbtn">Settings</button>
 </header>
 
@@ -128,12 +128,12 @@ input[type=text],input[type=password],input[type=search],input[type=number]{widt
     <input type="search" id="colsearch" placeholder="Search colours, e.g. dark bluish" autocomplete="off">
     <div class="swgrid" id="allcols" style="margin-top:8px"></div>
     <h3>3. How many?</h3>
+    <label class="qlabel" for="qty">Type a number, or use the buttons</label>
+    <input type="number" id="qty" class="qinput" inputmode="numeric" min="1" value="1" aria-label="Quantity">
     <div class="counter">
       <button data-d="-5">-5</button><button data-d="-1">-1</button>
-      <input type="number" id="qty" inputmode="numeric" min="1" value="1" aria-label="Quantity">
       <button data-d="1">+1</button><button data-d="5">+5</button>
     </div>
-    <div class="counter" style="margin-top:0"><span></span><button data-d="10">+10</button><button data-d="25">+25</button><button data-d="50">+50</button><span></span></div>
     <button class="btn yellow" id="addbtn" disabled>Pick a colour</button>
     <button class="btn ghost" id="newpart" style="margin-top:8px">Scan next part</button>
   </section>
@@ -147,6 +147,11 @@ input[type=text],input[type=password],input[type=search],input[type=number]{widt
       <button class="btn small ghost" id="copy">Copy CSV</button>
       <button class="btn small ghost" id="clear">Clear list</button>
     </div>
+    <div class="export" id="pushrow" hidden>
+      <button class="btn small yellow" id="pushold"></button>
+      <button class="btn small yellow" id="pushnew"></button>
+    </div>
+    <p class="msg" id="pushmsg" hidden></p>
     <p class="muted" style="margin:10px 0 0">In Rebrickable, make a new parts list, then use Import Parts and choose this CSV.</p>
   </section>
 </main>
@@ -158,6 +163,22 @@ input[type=text],input[type=password],input[type=search],input[type=number]{widt
       <label for="key">Rebrickable API key</label>
       <input type="password" id="key" autocomplete="off" placeholder="Paste your key">
       <p class="muted" style="margin:6px 0 0">Free from your Rebrickable account (<a href="https://rebrickable.com/api/" target="_blank" rel="noopener">rebrickable.com/api</a>). It stays on this phone.</p>
+    </div>
+    <div>
+      <label>Rebrickable account (to push into a list)</label>
+      <div id="acctout" class="muted">Not connected.</div>
+      <div id="acctform">
+        <input type="text" id="ruser" autocomplete="username" placeholder="Username" style="margin-top:6px">
+        <input type="password" id="rpass" autocomplete="current-password" placeholder="Password" style="margin-top:6px">
+        <p class="muted" style="margin:6px 0 0">Your password is sent only to Rebrickable to get a token. Only the token is kept on this phone.</p>
+        <button class="btn ghost" id="rconnect" style="margin-top:8px">Connect</button>
+      </div>
+      <div id="acctlists" hidden>
+        <button class="btn ghost" id="rlists" style="margin-top:8px">Load my lists</button>
+        <div class="items" id="listpick"></div>
+        <button class="btn ghost small" id="rdisc" style="margin-top:8px">Disconnect</button>
+      </div>
+      <p class="msg" id="acctmsg" hidden></p>
     </div>
     <details>
       <summary class="muted" style="font-weight:800">Advanced: service addresses</summary>
@@ -181,10 +202,11 @@ const LS = {
   get(k, d){ try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e) { return d; } },
   set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e) {} }
 };
-const cfg = Object.assign({key:'', bk:'https://api.brickognize.com', rb:'https://rebrickable.com/api/v3'}, LS.get('bi-cfg', {}));
+const cfg = Object.assign({key:'', token:'', user:'', listId:null, listName:'', bk:'https://api.brickognize.com', rb:'https://rebrickable.com/api/v3'}, LS.get('bi-cfg', {}));
 const state = Object.assign({name:'', items:[]}, LS.get('bi-state', {}));
 let colors = LS.get('bi-colors', null);
-let cur = null, hint = null;
+let cur = null, hint = null, bkColors = [];
+const normName = s => String(s || '').toLowerCase().replace(/gr[ae]y/g, 'gray').replace(/[^a-z0-9]+/g, ' ').trim();
 
 function save(){ LS.set('bi-state', state); }
 let tt = 0;
@@ -203,6 +225,23 @@ async function rb(path, tries){
   if(r.status === 429 && tries < 3){ await sleep(1100 * (tries + 1)); return rb(path, tries + 1); }
   if(!r.ok){ const e = new Error('Rebrickable replied ' + r.status); e.status = r.status; throw e; }
   return r.json();
+}
+async function rbUser(path, opts){
+  const o = Object.assign({headers:{}}, opts);
+  o.headers = Object.assign({'Authorization':'key ' + cfg.key, 'Accept':'application/json'}, o.headers);
+  const r = await fetch(cfg.rb + path, o);
+  if(!r.ok){ const e = new Error('Rebrickable replied ' + r.status); e.status = r.status; try { e.detail = (await r.json()).detail; } catch(_) {} throw e; }
+  return r.json();
+}
+async function fetchAllPages(path){
+  let out = [], url = path;
+  while(url){
+    const d = await rbUser(url);
+    out = out.concat(d.results || []);
+    url = d.next ? d.next.replace(cfg.rb, '') : null;
+    if(url) await sleep(1100);
+  }
+  return out;
 }
 async function ensureColors(){
   if(colors && colors.length) return;
@@ -269,13 +308,14 @@ async function handlePhoto(file){
   let data;
   try {
     const fd = new FormData(); fd.append('query_image', blob, 'brick.jpg');
-    const r = await fetch(cfg.bk + '/predict/parts/', {method:'POST', body:fd});
+    const r = await fetch(cfg.bk + '/predict/parts/?predict_color=true&top_k_colors=5', {method:'POST', body:fd});
     if(!r.ok) throw new Error('Brickognize replied ' + r.status);
     data = await r.json();
   } catch(e) {
     setMsg("Couldn't reach Brickognize from this browser (" + e.message + "). You can type the part number above instead.", true);
     return;
   }
+  bkColors = Array.isArray(data.colors) ? data.colors : [];
   const items = (data.items || []).slice(0, 5);
   if(!items.length){ setMsg('No match found. Try a clearer photo on a plain background, or type the part number.', true); return; }
   setMsg('');
@@ -341,12 +381,17 @@ function renderPart(){
     chip.appendChild(c);
   }
   const likelyBox = $('#likely'); likelyBox.textContent = '';
+  const top = [];
+  for(const bc of bkColors){
+    const c = cur.avail.find(x => normName(x.name) === normName(bc.name));
+    if(c && !top.includes(c)) top.push(c);
+  }
   if(hint && cur.avail.length){
     const hl = lab(hint);
-    const top = cur.avail.slice().sort((a, b) => dist(a.lab, hl) - dist(b.lab, hl)).slice(0, 4);
-    top.forEach(c => likelyBox.appendChild(swatch(c)));
-    $('#likelywrap').hidden = false;
-  } else $('#likelywrap').hidden = true;
+    cur.avail.slice().sort((a, b) => dist(a.lab, hl) - dist(b.lab, hl)).slice(0, 4).forEach(c => { if(top.length < 5 && !top.includes(c)) top.push(c); });
+  }
+  if(top.length){ top.forEach(c => likelyBox.appendChild(swatch(c))); $('#likelywrap').hidden = false; }
+  else $('#likelywrap').hidden = true;
   const q = $('#colsearch').value.trim().toLowerCase();
   const all = cur.avail.filter(c => !q || c.name.toLowerCase().includes(q)).sort((a, b) => (b.pop - a.pop) || a.name.localeCompare(b.name));
   const grid = $('#allcols'); grid.textContent = '';
@@ -411,7 +456,56 @@ function renderItems(){
   $('#tot1').textContent = state.items.length + (state.items.length === 1 ? ' line' : ' lines');
   $('#tot2').textContent = pieces + (pieces === 1 ? ' piece' : ' pieces');
   ['dl', 'share', 'copy', 'clear'].forEach(id => { $('#' + id).disabled = !state.items.length; });
+  renderPush();
 }
+function renderPush(){
+  $('#pushrow').hidden = !cfg.token;
+  const nm = (state.name || '').trim() || 'New haul';
+  $('#pushold').hidden = !cfg.listId; $('#pushold').textContent = 'Add to "' + cfg.listName + '"';
+  $('#pushnew').textContent = 'Push to new list "' + nm + '"';
+  $('#pushold').disabled = $('#pushnew').disabled = !state.items.length;
+}
+function pushMsg(t, err){ const m = $('#pushmsg'); m.hidden = !t; m.textContent = t || ''; m.classList.toggle('err', !!err); }
+async function pushItems(listId){
+  const tok = encodeURIComponent(cfg.token), base = '/users/' + tok + '/partlists/' + listId + '/parts/';
+  const body = state.items.map(i => ({part_num:i.part, color_id:i.color, quantity:i.qty}));
+  const added = await rbUser(base, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  const got = new Set((Array.isArray(added) ? added : []).map(a => (a.part && a.part.part_num || a.part_num) + '|' + (a.color && a.color.id != null ? a.color.id : a.color_id)));
+  const rest = body.filter(b => !got.has(b.part_num + '|' + b.color_id));
+  let merged = 0, failed = 0;
+  if(rest.length){
+    const existing = await fetchAllPages(base + '?page_size=1000');
+    const have = new Map(existing.map(e => [e.part.part_num + '|' + e.color.id, e.quantity]));
+    for(const b of rest){
+      const k = b.part_num + '|' + b.color_id;
+      if(!have.has(k)){ failed++; continue; }
+      try {
+        await rbUser(base + encodeURIComponent(b.part_num) + '/' + b.color_id + '/', {method:'PUT', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:new URLSearchParams({quantity:have.get(k) + b.quantity})});
+        merged++;
+      } catch(e) { failed++; }
+      await sleep(1100);
+    }
+  }
+  return {added:got.size, merged, failed};
+}
+async function doPush(btn, create){
+  pushMsg('');
+  try {
+    let id = cfg.listId, name = cfg.listName;
+    if(create){
+      name = (state.name || '').trim() || 'New haul';
+      const l = await rbUser('/users/' + encodeURIComponent(cfg.token) + '/partlists/', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:new URLSearchParams({name})});
+      id = l.id; cfg.listId = l.id; cfg.listName = l.name; LS.set('bi-cfg', cfg); renderPush();
+    }
+    const r = await pushItems(id);
+    pushMsg('Pushed to "' + name + '": ' + r.added + ' added' + (r.merged ? ', ' + r.merged + ' merged into existing lines' : '') + (r.failed ? ', ' + r.failed + ' failed' : '') + '.', !!r.failed);
+    if(!r.failed && confirm('Pushed. Clear the local list?')){ state.items = []; save(); renderItems(); }
+  } catch(e) {
+    pushMsg(e.status === 401 || e.status === 403 ? 'Rebrickable rejected the token. Reconnect in Settings.' : (e.message + (e.detail ? ': ' + e.detail : '')), true);
+  }
+}
+$('#pushold').onclick = () => withBusy($('#pushold'), () => doPush($('#pushold'), false));
+$('#pushnew').onclick = () => withBusy($('#pushnew'), () => doPush($('#pushnew'), true));
 function csv(){ return 'Part,Color,Quantity\n' + state.items.map(i => i.part + ',' + i.color + ',' + i.qty).join('\n') + '\n'; }
 function fname(){ return ((state.name || 'haul').replace(/[^\w\-]+/g, '-').replace(/^-+|-+$/g, '') || 'haul') + '-rebrickable.csv'; }
 $('#dl').onclick = () => {
@@ -436,7 +530,7 @@ $('#clear').onclick = () => {
   state.items = []; save(); renderItems(); toast('List cleared');
 };
 $('#listname').value = state.name || '';
-$('#listname').addEventListener('input', e => { state.name = e.target.value; save(); });
+$('#listname').addEventListener('input', e => { state.name = e.target.value; save(); renderPush(); });
 
 /* ---------- inputs ---------- */
 $('#cam').addEventListener('change', e => {
@@ -451,14 +545,14 @@ async function manual(){
   try {
     const p = await resolvePart(id, true);
     if(!p){ setMsg('Rebrickable has no part ' + id + '.', true); return; }
-    setMsg(''); hint = null; await loadPart(p);
+    setMsg(''); hint = null; bkColors = []; await loadPart(p);
   } catch(e) { setMsg(keyHelp(e), true); }
 }
 $('#manualgo').onclick = () => withBusy($('#manualgo'), manual);
 $('#manual').addEventListener('keydown', e => { if(e.key === 'Enter') manual(); });
 
 /* ---------- settings ---------- */
-function openCfg(){ $('#key').value = cfg.key; $('#bkbase').value = cfg.bk; $('#rbbase').value = cfg.rb; $('#cfg').hidden = false; }
+function openCfg(){ renderAcct(); $('#key').value = cfg.key; $('#bkbase').value = cfg.bk; $('#rbbase').value = cfg.rb; $('#cfg').hidden = false; }
 $('#cfgbtn').onclick = openCfg;
 $('#cfgclose').onclick = () => { $('#cfg').hidden = true; };
 $('#cfgsave').onclick = () => {
@@ -466,8 +560,53 @@ $('#cfgsave').onclick = () => {
   const newKey = $('#key').value.trim();
   if(newKey !== cfg.key) { colors = null; LS.set('bi-colors', null); }
   cfg.key = newKey; cfg.bk = bk || 'https://api.brickognize.com'; cfg.rb = rbb || 'https://rebrickable.com/api/v3';
-  LS.set('bi-cfg', cfg); $('#cfg').hidden = true; toast('Saved');
+  LS.set('bi-cfg', cfg); $('#cfg').hidden = true; renderPush(); toast('Saved');
 };
+
+/* ---------- Rebrickable account ---------- */
+function acctMsg(t, err){ const m = $('#acctmsg'); m.hidden = !t; m.textContent = t || ''; m.classList.toggle('err', !!err); }
+function renderAcct(){
+  const on = !!cfg.token;
+  $('#acctform').hidden = on; $('#acctlists').hidden = !on;
+  $('#acctout').textContent = on ? 'Connected as ' + (cfg.user || 'your account') + (cfg.listId ? '. Target list: ' + cfg.listName : '. No target list chosen.') : 'Not connected.';
+}
+$('#rconnect').onclick = () => withBusy($('#rconnect'), async () => {
+  const u = $('#ruser').value.trim(), p = $('#rpass').value;
+  if(!cfg.key){ acctMsg('Enter and save your API key first.', true); return; }
+  if(!u || !p){ acctMsg('Enter your username and password.', true); return; }
+  acctMsg('');
+  try {
+    const d = await rbUser('/users/_token/', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:new URLSearchParams({username:u, password:p})});
+    cfg.token = d.user_token; cfg.user = u; LS.set('bi-cfg', cfg);
+    $('#rpass').value = ''; renderAcct(); renderPush(); toast('Connected');
+  } catch(e) {
+    acctMsg(e.status === 400 || e.status === 401 || e.status === 403 ? 'Rebrickable rejected that username/password or API key.' : (e.message + '. The browser may be blocking the request.'), true);
+  }
+});
+$('#rlists').onclick = () => withBusy($('#rlists'), async () => {
+  acctMsg('');
+  try {
+    const lists = await fetchAllPages('/users/' + encodeURIComponent(cfg.token) + '/partlists/?page_size=1000');
+    const box = $('#listpick'); box.textContent = '';
+    if(!lists.length) acctMsg('Connected, but you have no part lists yet.');
+    for(const l of lists){
+      const b = document.createElement('button'); b.className = 'item'; b.style.textAlign = 'left'; b.style.width = '100%';
+      b.setAttribute('aria-pressed', String(cfg.listId === l.id));
+      if(cfg.listId === l.id) b.style.borderColor = 'var(--blue)';
+      const t = document.createElement('div'); t.className = 't';
+      const n = document.createElement('b'); n.textContent = l.name;
+      const s = document.createElement('span'); s.className = 'muted'; s.textContent = 'ID ' + l.id + ' · ' + (l.num_parts != null ? l.num_parts + ' parts' : '');
+      t.append(n, s); b.appendChild(t);
+      b.onclick = () => { cfg.listId = l.id; cfg.listName = l.name; LS.set('bi-cfg', cfg); renderAcct(); renderPush(); [...box.children].forEach(x => x.style.borderColor = ''); b.style.borderColor = 'var(--blue)'; };
+      box.appendChild(b);
+    }
+    toast('Loaded ' + lists.length + ' lists');
+  } catch(e) {
+    if(e.status === 401 || e.status === 403) acctMsg('The token was rejected. Disconnect and connect again.', true);
+    else acctMsg(e.message + '. The browser may be blocking the request.', true);
+  }
+});
+$('#rdisc').onclick = () => { cfg.token = ''; cfg.user = ''; cfg.listId = null; cfg.listName = ''; LS.set('bi-cfg', cfg); $('#listpick').textContent = ''; acctMsg(''); renderAcct(); renderPush(); };
 
 /* ---------- press + ripple feedback ---------- */
 document.addEventListener('pointerdown', e => {
