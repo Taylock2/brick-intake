@@ -7,5 +7,5 @@ enter the count, then export a Rebrickable CSV (Part, Color, Quantity).
 - Looks up valid colours per part with the Rebrickable API (free key, entered in Settings, stored only in the browser).
 - No build step. The whole app is `index.html`.
 
-## Publish with GitHub Pages
-Settings > Pages > Deploy from a branch > `main` / `(root)`.
+## Published with GitHub Pages
+https://taylock2.github.io/brick-intake/
